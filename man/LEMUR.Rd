@@ -2,6 +2,7 @@
 % Please edit documentation in R/Untitled.R
 \docType{package}
 \name{LEMUR}
+\alias{LEMUR-package}
 \alias{LEMUR}
 \title{Linear mixed model-based differential Expression analysis accounting for Multiple samples Using Random effects}
 \description{

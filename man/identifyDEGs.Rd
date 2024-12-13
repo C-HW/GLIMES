@@ -46,5 +46,5 @@ but genes showing large difference in mean would be considered as a
 candidate for DEGs.
 }
 \examples{
-identifyDEGs(runif(1000), rnorm(1000))
+identifyDEGs(runif(1000), rnorm(1000), newcriteria = FALSE)
 }

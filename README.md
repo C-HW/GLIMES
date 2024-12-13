@@ -52,24 +52,48 @@ data(Bcells_sce)
 
 ## DE analysis
 
-For this dataset, the goal of the DE analysis is to determine the DEGs between two different conditions (groups) within B cells. The function `poisson_glmm_DE` and `binomial_glmm_DE` are designed to perform DE analysis. Here we present the workflow of **LEMUR** by `poisson_glmm_DE` first.
+For this dataset, the goal of the DE analysis is to determine the DEGs between two different conditions 
+(groups) within B cells. The function `poisson_glmm_DE` and `binomial_glmm_DE` are designed to perform 
+DE analysis. Here we present the workflow of **LEMUR** by `poisson_glmm_DE` first.
 
-The input requires a `SingleCellExperiment` object `sce` with UMI counts retrievable in `sce@assays@data$counts`, a vector `cellgroups` indicating the group-of-interest, and a vector `repgroups` representing the donor of each cell. For `Bcells_sce`, the information of condition groups and donors is stored in `Bcells_sce$stim` and `Bcells_sce$ind`, respectively.
+The input requires a `SingleCellExperiment` object `sce` with UMI counts retrievable in 
+`sce@assays@data$counts`. The parameter `comparison` indicates the group-of-interest, and 
+`replicates` represents the donor of each cell. If there are additional fixed effect and experimental batch 
+(such as sample ID), `other_fixed` and `exp_batch` can be used to specify the variables accordingly. 
+
+For `Bcells_sce`, the compared groups and donors is stored in `stim` and `ind` respectively. The experimental 
+batch is the combination of `stim` and `ind`. Note that if the donor ID has already represented the experimental 
+batch, there's no need to add extra experimental batch variable. And for this example we don't adjust for other 
+fixed effects.
 
 ```{r}
+# create sampleID
+Bcells_sce$sampleID = paste0(Bcells_sce$stim,"_", Bcells_sce$ind)
 # running time is about 8 minutes.
-pois_glmm_df = poisson_glmm_DE(sce = Bcells_sce, cellgroups = Bcells_sce$stim, repgroups = Bcells_sce$ind)
+pois_glmm_df = poisson_glmm_DE(sce = Bcells_sce, comparison = "stim", repgroups = "ind", exp_batch = "sampleID")
 ```
 
 ## Determine DEGs
 
-To determine DEGs, we implemented `identifyDEGs` to perform our new criteria, which is a modification of the convention one.  The conventional criteria selects genes satisfying its adjusted p-value passes 0.05 (default) and its absolute value of log2 fold change passes log2(1.5) (default). The new criteria are based on the convention plus the gene mean and the difference in mean.
+To determine DEGs, we implemented `identifyDEGs` to perform our new criteria, which is a modification of the convention one.  
+The conventional criteria selects genes satisfying its adjusted p-value passes 0.05 (default) and its absolute value of log2 
+fold change passes log2(1.5) (default). The new criteria are based on the convention plus the gene mean and the difference in mean.
 
-If the log2 gene mean in two groups is lower than a certain value (-2.25 by default) and the log2 mean difference is smaller than a threshold (-1 by default), the gene would not be considered as a DEG. These can also be used as a filter before any DE analysis to speed up the computation. Both thresholds are adjustable, depending on the dataset's performance and characteristics. More details can be found [here](https://c-hw.github.io/DEanalysis/new_criteria.html).
+If the log2 gene mean in two groups is lower than a certain value (-2.25 by default) and the log2 mean difference is smaller than a 
+threshold (-1 by default), the gene would not be considered as a DEG. Both thresholds are adjustable, depending on the dataset's performance 
+and characteristics. More details can be found [here](https://c-hw.github.io/DEanalysis/new_criteria.html).
 
+This function's default setting is applying new criteria. You may set `newcriteria = F` for the conventional rule.
 ```{r}
 # new criteria
-pois_glmm_df$new_DEGs = identifyDEGs(pois_glmm_df$BH, pois_glmm_df$log2FC, pois_glmm_df$log2mean, pois_glmm_df$log2meandiff, log2FCcutoff = 1)
+pois_glmm_df$new_DEGs = identifyDEGs(adj_pval = pois_glmm_df$BH, 
+                                     log2FC = pois_glmm_df$log2FC, 
+                                     log2mean = pois_glmm_df$log2mean, 
+                                     log2meandiff = pois_glmm_df$log2meandiff, 
+                                     log2FCcutoff = 1,
+                                     log2meancutoff = -2.25,
+                                     log2meandiffcutoff = -1,
+                                     newcriteria = T)
 ```
 
 The volcano plot and heatmap below demonstrate the DEGs.
@@ -122,13 +146,17 @@ Some studies have shown that the zero proportion of a gene is an indicator for d
 
 The DE result of Binomial-glmm can be obtained by the following command.
 ```{r}
-binomial_glmm_df = binomial_glmm_DE(Bcells_sce, cellgroups = Bcells_sce$stim, repgroups = Bcells_sce$ind)
+binomial_glmm_df = binomial_glmm_DE(sce = Bcells_sce, comparison = "stim", repgroups = "ind", exp_batch = "sampleID")
 ```
 
 The function `identifyDEGs` also provides another option for conventional criteria.
 ```{r}
 # conventional criteria
 pois_glmm_df$conv_DEGs = identifyDEGs(pois_glmm_df$BH, pois_glmm_df$log2FC, log2FCcutoff = 1, newcriteria = F)
+pois_glmm_df$conv_DEGs = identifyDEGs(adj_pval = pois_glmm_df$BH, 
+                                     log2FC = pois_glmm_df$log2FC, 
+                                     log2FCcutoff = 1,
+                                     newcriteria = F)
 ```
 
 However, the heatmap below shows that the convention one may includes plenty of lowly expressed genes. We still recommend to perform the new criteria.

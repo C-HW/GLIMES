@@ -4,14 +4,25 @@
 \alias{poisson_glmm_DE}
 \title{An implementation Poisson glmm DE method.}
 \usage{
-poisson_glmm_DE(sce, cellgroups, repgroups, freq_expressed = 0.05)
+poisson_glmm_DE(
+  sce,
+  comparison,
+  replicates,
+  exp_batch = NULL,
+  other_fixed = NULL,
+  freq_expressed = 0.05
+)
 }
 \arguments{
 \item{sce}{a SingleCellExperiment object with raw count matrix.}
 
-\item{cellgroups}{a vector of group labels for cells. The cells consist of two different groups.}
+\item{comparison}{group comparison variable (e.g., conditions, celltype). The variable consists of exact two different groups.}
 
-\item{repgroups}{a vector of donor labels for cells.}
+\item{replicates}{donor variable.}
+
+\item{exp_batch}{experimental batches.}
+
+\item{other_fixed}{donor variable.}
 
 \item{freq_expressed}{a threshold for gene detection rate.}
 }
@@ -23,5 +34,5 @@ An implementation Poisson glmm DE method.
 }
 \examples{
 data(Bcells_sce)
-poisson_glmm_DE(Bcells_sce[1:10,], Bcells_sce$stim, Bcells_sce$ind)
+poisson_glmm_DE(Bcells_sce[1:10,], comparison = "stim", replicates = "ind")
 }

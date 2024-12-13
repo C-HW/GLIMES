@@ -32,167 +32,205 @@ simple_mean_DE = function(counts, cellgroup1, cellgroup2){
 #' An implementation Poisson glmm DE method.
 #'
 #' @param sce a SingleCellExperiment object with raw count matrix.
-#' @param cellgroups a vector of group labels for cells. The cells consist of two different groups.
-#' @param repgroups a vector of donor labels for cells.
+#' @param comparison group comparison variable (e.g., conditions, celltype). The variable consists of exact two different groups.
+#' @param replicates donor variable.
+#' @param exp_batch experimental batches.
+#' @param other_fixed donor variable.
 #' @param freq_expressed a threshold for gene detection rate.
 #' @return A dataframe of Poisson glmm DE results with each row for a gene.
 #' @examples
 #' data(Bcells_sce)
-#' poisson_glmm_DE(Bcells_sce[1:10,], Bcells_sce$stim, Bcells_sce$ind)
+#' poisson_glmm_DE(Bcells_sce[1:10,], comparison = "stim", replicates = "ind")
 #' @export
-poisson_glmm_DE = function(sce, cellgroups, repgroups, freq_expressed = 0.05){
-  countdf = data.frame(cellgroups = as.factor(cellgroups),
-                       repgroups = as.factor(repgroups))
-  df = data.frame(genes = rownames(sce@assays@data$counts), mu = NA, beta_cellgroups = NA,
+poisson_glmm_DE = function(sce,
+                           comparison,        # Mandatory: group comparison variable (e.g., conditions, celltype)
+                           replicates,          # Mandatory: random effect for donors
+                           exp_batch = NULL,     # Optional: random effect for experimental batches
+                           other_fixed = NULL, # Optional: other fixed effects (e.g., sex, age)
+                           freq_expressed = 0.05) {
+  # Prepare the data frame
+  countdf <- data.frame(comparison = as.factor(SummarizedExperiment::colData(sce)[, comparison]),
+                        replicates = as.factor(SummarizedExperiment::colData(sce)[, replicates]))
+  # Build fixed effects formula
+  fixed_effects <- paste("comparison",
+                         if (!is.null(other_fixed)) paste("+", paste(other_fixed, collapse = " + ")),
+                         sep = " ")
+
+  # Build random effects formula
+  random_effects_list <- list(replicates = ~1)  # First random effect for replicates
+
+  # Add other fixed effects if provided
+  if (!is.null(other_fixed)) {
+    countdf = cbind(countdf, data.frame(SummarizedExperiment::colData(sce)[, other_fixed, drop = FALSE]))
+  }
+
+  # Add experimental batch if provided
+  if (!is.null(exp_batch)) {
+    countdf$exp_batch <- SummarizedExperiment::colData(sce)[, exp_batch]
+    random_effects_list$exp_batch <- ~1  # Add second random effect for exp_batch
+  }
+
+  # Initialize the output data frame
+  df = data.frame(genes = rownames(sce), mu = NA, beta_comparison = NA,
                   log2FC = NA, sigma_square = NA, status = "done", pval = NA, BH = NA,
                   log2mean = NA, log2meandiff = NA)
-  # REvariation = rep(NA,nrow(sce@assays@data$counts))
-  # FEvariation = rep(NA,nrow(sce@assays@data$counts))
-  # RESvariation = rep(NA,nrow(sce@assays@data$counts))
 
-  for(i in 1:nrow(sce@assays@data$counts)){
-    countdf$count = round(pmax(sce@assays@data$counts[i,],0))
-    if (mean(countdf$count!=0, na.rm = TRUE) <= freq_expressed) {
-      if(mean(countdf$count!=0, na.rm = TRUE) == 0){
-        df$status[i] = "zero mean"
-        next
-      }else{
-        df$status[i] = "lowly expressed"
-        next
-      }
+  start_time <- Sys.time()  # Start time for tracking progress
+  # Loop through each gene
+  for(i in 1:nrow(sce)){
+    # Progress tracking: Estimated time remaining
+    if (i %% round(nrow(sce)/10) == 0) {  # Update every 10% iterations
+      current_time <- Sys.time()
+      elapsed_time <- as.numeric(difftime(current_time, start_time, units = "secs"))
+      avg_time_per_iter <- elapsed_time / i
+      remaining_time <- (nrow(sce) - i) * avg_time_per_iter
+      cat(sprintf("Progress: %d/%d genes, Estimated remaining time: %.2f minutes\n",
+                  i, nrow(sce), remaining_time / 60))
     }
-    gm = tryCatch(summary(MASS::glmmPQL(count~cellgroups, random = ~1|repgroups, family = stats::poisson, data = countdf, verbose = FALSE)),
-                  error = function(e){NULL})
+
+    countdf$count = as.numeric(round(pmax(sce@assays@data$counts[i,],0)))
+
+    # Compute gene mean and mean difference for each comparison group
+    genemean = stats::aggregate(count ~ comparison, data = countdf, FUN = mean, na.rm = TRUE)
+    genemean = genemean[order(genemean$comparison), ]
+    genemean1 = genemean[1,2]
+    genemean2 = genemean[2,2]
+
+    df$log2mean[i] = log2(genemean1*genemean2)/2
+    df$log2meandiff[i] = log2(abs(genemean1-genemean2))
+
+    # Skip lowly expressed genes
+    if (mean(countdf$count != 0, na.rm = TRUE) <= freq_expressed) {
+      df$status[i] <- ifelse(mean(countdf$count != 0, na.rm = TRUE) == 0, "zero mean", "lowly expressed")
+      next
+    }
+
+    # Fit Poisson GLMM model using glmmPQL
+    gm = tryCatch(
+      summary(MASS::glmmPQL(as.formula(paste("count ~", fixed_effects)),
+                            random = random_effects_list,
+                            family = stats::poisson, data = countdf,
+                            verbose = FALSE)),
+      error = function(e){NULL}
+    )
+
     if (is.null(gm)){
       df$status[i] = "not converge"
       next
     }
-    gm_null = tryCatch(summary(MASS::glmmPQL(count~1, random = ~1|repgroups, family = stats::poisson, data = countdf, verbose = FALSE)),
-                  error = function(e){NULL})
     df$pval[i] = gm$tTable[2 ,"p-value"]
     df$sigma_square[i] = gm$sigma^2
     df$mu[i] = gm$coefficients$fixed[1]
-    df$beta_cellgroups[i] = gm$coefficients$fixed[2]
-    genemean1 = mean(countdf$count[cellgroups==levels(cellgroups)[1]])
-    genemean2 = mean(countdf$count[cellgroups==levels(cellgroups)[2]])
-    df$log2mean[i] = log2(genemean1*genemean2)/2
-    df$log2meandiff[i] = log2(abs(genemean1-genemean2))
-    # rsquared = tryCatch(r.squaredGLMM(gm, gm_null, pj2014 = T), error = function(e){NULL})
-    # if (!is.null(rsquared)){
-    #   REvariation[i] = rsquared[1,2] - rsquared[1,1]
-    #   FEvariation[i] = rsquared[1,1]
-    #   RESvariation[i] = 1-rsquared[1,2]
-    # }
+    df$beta_comparison[i] = gm$coefficients$fixed[2]
   }
-  df$log2FC = log2(exp(df$beta_cellgroups))
+  df$log2FC = log2(exp(df$beta_comparison))
   df$BH = stats::p.adjust(df$pval, method = "BH")
-
-  # df$REvariation = REvariation
-  # df$FEvariation = FEvariation
-  # df$RESvariation = RESvariation
   return(df)
 }
 
 #' An implementation of Binomial glmm DE method.
 #'
 #' @param sce a SingleCellExperiment object with raw count matrix.
-#' @param cellgroups a vector of group labels for cells. The cells consist of two different groups.
-#' @param repgroups a vector of donor labels for cells.
+#' @param comparison group comparison variable (e.g., conditions, celltype). The variable consists of exact two different groups.
+#' @param replicates donor variable.
+#' @param exp_batch experimental batches.
+#' @param other_fixed donor variable.
 #' @param freq_expressed a threshold for gene detection rate.
-#' @return A dataframe of Binomial glmm DE results with each row for a gene.
+#' @return A dataframe of Poisson glmm DE results with each row for a gene.
 #' @examples
 #' data(Bcells_sce)
-#' binomial_glmm_DE(Bcells_sce[1:10,], Bcells_sce$stim, Bcells_sce$ind)
+#' binomial_glmm_DE(Bcells_sce[1:10,], comparison = "stim", replicates = "ind")
 #' @export
-binomial_glmm_DE = function(sce, cellgroups, repgroups, freq_expressed = 0.05){
+binomial_glmm_DE = function(sce,
+                            comparison,        # Mandatory: group comparison variable (e.g., conditions, cell type)
+                            replicates,        # Mandatory: random effect for donors (patients)
+                            exp_batch = NULL,  # Optional: random effect for experimental batches
+                            other_fixed = NULL, # Optional: other fixed effects (e.g., sex, age)
+                            freq_expressed = 0.05) {
 
-  countdf = data.frame(cellgroups = as.factor(cellgroups), repgroups = as.factor(repgroups))
-  df = data.frame(genes = rownames(sce@assays@data$counts), mu = NA, beta_cellgroups = NA,
+  # Prepare the data frame
+  countdf <- data.frame(comparison = as.factor(SummarizedExperiment::colData(sce)[, comparison]),
+                        replicates = as.factor(SummarizedExperiment::colData(sce)[, replicates]))
+  # Build fixed effects formula
+  fixed_effects <- paste("comparison",
+                         if (!is.null(other_fixed)) paste("+", paste(other_fixed, collapse = " + ")),
+                         sep = " ")
+
+  # Build random effects formula
+  random_effects_list <- list(replicates = ~1)  # First random effect for replicates
+
+  # Add other fixed effects if provided
+  if (!is.null(other_fixed)) {
+    countdf = cbind(countdf, data.frame(SummarizedExperiment::colData(sce)[, other_fixed, drop = FALSE]))
+  }
+  # Add experimental batch if provided
+  if (!is.null(exp_batch)) {
+    countdf$exp_batch <- SummarizedExperiment::colData(sce)[, exp_batch]
+    random_effects_list$exp_batch <- ~1  # Add second random effect for exp_batch
+  }
+  # Initialize the output data frame
+  df = data.frame(genes = rownames(sce), mu = NA, beta_comparison = NA,
                   log2FC = NA, sigma_square = NA, status = "done", pval = NA, BH = NA,
                   log2mean = NA, log2meandiff = NA)
-  for(i in 1:nrow(sce@assays@data$counts)){
-    countdf$count = 1*(sce@assays@data$counts[i,]>0)
-    if (mean(countdf$count) <= freq_expressed) {
-      if(mean(countdf$count) == 0){
-        df$status[i] = "zero mean"
-        next
-      }else{
-        df$status[i] = "lowly expressed"
-        next
-      }
+
+  start_time <- Sys.time()  # Start time for tracking progress
+  # Loop through each gene
+  for (i in 1:nrow(sce)) {
+    # Progress tracking: Estimated time remaining
+    if (i %% round(nrow(sce)/10) == 0) {  # Update every 10% iterations
+      current_time <- Sys.time()
+      elapsed_time <- as.numeric(difftime(current_time, start_time, units = "secs"))
+      avg_time_per_iter <- elapsed_time / i
+      remaining_time <- (nrow(sce) - i) * avg_time_per_iter
+      cat(sprintf("Progress: %d/%d genes, Estimated remaining time: %.2f minutes\n",
+                  i, nrow(sce), remaining_time / 60))
     }
-    genemean_bygroup = stats::aggregate(count ~ cellgroups, data = countdf, FUN = mean)
-    if (genemean_bygroup$count[1] == genemean_bygroup$count[2]){
-      df$status[i] = "no difference between groups"
+
+    countdf$count = as.numeric(1*(sce@assays@data$counts[i,]>0))
+
+    # Compute gene mean and mean difference for each comparison group
+    genemean = stats::aggregate(count ~ comparison, data = countdf, FUN = mean, na.rm = TRUE)
+    genemean = genemean[order(genemean$comparison), ]
+    genemean1 = genemean[1,2]
+    genemean2 = genemean[2,2]
+    df$log2mean[i] = log2(genemean1*genemean2)/2
+    df$log2meandiff[i] = log2(abs(genemean1-genemean2))
+
+    # Skip lowly expressed genes
+    if (mean(countdf$count) <= freq_expressed) {
+      df$status[i] <- ifelse(mean(countdf$count != 0, na.rm = TRUE) == 0, "zero mean", "lowly expressed")
       next
     }
-    gm = tryCatch(summary(MASS::glmmPQL(count~cellgroups, random = ~1|repgroups, family = stats::binomial, data = countdf, verbose = FALSE, niter = 50)),
-                  error = function(e){NULL})
+    # genemean_bygroup = aggregate(count ~ cellgroups, data = countdf, FUN = mean)
+    #  if (genemean_bygroup$count[1] == genemean_bygroup$count[2]){
+    #    df$status[i] = "no difference between groups"
+    #    next
+    #  }
+
+    # Fit Binomial GLMM model using glmmPQL
+    gm = tryCatch(
+      summary(MASS::glmmPQL(as.formula(paste("count ~", fixed_effects)),
+                            random = random_effects_list,
+                            family = stats::poisson, data = countdf,
+                            verbose = FALSE,
+                            niter = 50)),
+      error = function(e){NULL}
+    )
+
     if (is.null(gm)){
       df$status[i] = "not converge"
       next
     }
     df$pval[i] = gm$tTable[2 ,"p-value"]
-    df$beta_cellgroups[i] = gm$coefficients$fixed[2]
-    df$mu[i] = gm$coefficients$fixed[1]
     df$sigma_square[i] = gm$sigma^2
-    genemean1 = mean(countdf$count[cellgroups==levels(cellgroups)[1]])
-    genemean2 = mean(countdf$count[cellgroups==levels(cellgroups)[2]])
-    df$log2mean[i] = log2(genemean1*genemean2)/2
-    df$log2meandiff[i] = log2(abs(genemean1-genemean2))
+    df$mu[i] = gm$coefficients$fixed[1]
+    df$beta_comparison[i] = gm$coefficients$fixed[2]
   }
-  df$log2FC = log2(exp(df$beta_cellgroups))
+  df$log2FC = log2(exp(df$beta_comparison))
   df$BH = stats::p.adjust(df$pval, method = "BH")
   return(df)
 }
 
-# pseudobulk_deseq2 = function(sce, cellgroups, repgroups){
-#   raw_count = melt(t(round(pmax(sce@assays@data$counts,0))), value.name = "count")
-#   colnames(raw_count) = c("cell", "gene", "count")
-#   raw_count$cellgroups = rep(as.factor(cellgroups), nrow(raw_count)/length(cellgroups))
-#   raw_count$repgroups = rep(as.factor(repgroups), nrow(raw_count)/length(repgroups))
-#   pseudobulk_count = aggregate(count ~ repgroups + cellgroups + gene , data = raw_count, FUN = sum)
-#   coldata = unique(pseudobulk_count[c("repgroups","cellgroups")])
-#   pseudobulk_count$cell_rep = paste0(pseudobulk_count$cellgroups, "_", pseudobulk_count$repgroups)
-#   pseudobulk_count = reshape(pseudobulk_count[,c("cell_rep","gene", "count")], idvar = "gene", timevar = c("cell_rep"), direction = "wide")
-#   rownames(pseudobulk_count) = pseudobulk_count[,1]
-#   pseudobulk_count[,1] = NULL
-#   dds = DESeqDataSetFromMatrix(countData = pseudobulk_count,
-#                                colData = coldata,
-#                                design= ~ repgroups + cellgroups)
-#   dds = DESeq(dds)
-#   df = results(dds)[c("pvalue", "padj", "baseMean", "log2FoldChange")]
-#   colnames(df) = c("pval", "BH", "basemean", "log2FC")
-#   return(df)
-# }
-
-#' An implementation of MAST DE method.
-#'
-#' @param sce a SingleCellExperiment object with raw count matrix. The CPM counts are computed in the funciton.
-#' @param cellgroups a vector of group labels for cells. The cells consist of two different groups.
-#' @param repgroups a vector of donor labels for cells.
-#' @param freq_expressed a threshold for gene detection rate.
-#' @return A dataframe of MAST DE results with each row for a gene.
-#' @examples
-#' data(Bcells_sce)
-#' MAST_DE(Bcells_sce, Bcells_sce$stim, Bcells_sce$ind)
-#' @export
-MAST_DE = function(sce, cellgroups, repgroups, freq_expressed = 0.05){
-  sca = MAST::FromMatrix(log2(edgeR::cpm(round(pmax(sce@assays@data$counts,0)))+1),
-                      data.frame(cellgroups = as.factor(cellgroups), repgroups = as.factor(repgroups)),
-                      data.frame(gene = rownames(sce@assays@data$counts)))
-  expressed_genes = MAST::freq(sca) > freq_expressed
-  sca = sca[expressed_genes,]
-  SummarizedExperiment::colData(sca)$cdr = colSums(SummarizedExperiment::assay(sca)>0)/dim(sca)[1]
-  zlmCellgroups = MAST::zlm( ~ cellgroups + cdr + repgroups, sca)
-  lrt = MAST::lrTest(zlmCellgroups, "cellgroups")
-  df = data.frame(genes = rownames(sca))
-  df$coef_cellgroups = zlmCellgroups@coefC[,2]
-  df$log2FC = log2(exp(df$coef_cellgroups))
-  df = merge(df, data.frame(genes = names(lrt[,3,3]), pval = lrt[,3,3]), by = "genes", all.x = TRUE)
-  df$BH = stats::p.adjust(df$pval, method = "BH")
-  return(df)
-}
 #' Identify DEGs for a list of genes after performing DE analysis.
 #'
 #' An old framework select genes with adjusted p-values smaller than
@@ -212,7 +250,7 @@ MAST_DE = function(sce, cellgroups, repgroups, freq_expressed = 0.05){
 #' @param newcriteria logical. Whether the gene mean and difference of mean should be included in the criteria
 #' @return A logical vector indicating DEGs
 #' @examples
-#' identifyDEGs(runif(1000), rnorm(1000))
+#' identifyDEGs(runif(1000), rnorm(1000), newcriteria = FALSE)
 #' @export
 identifyDEGs = function(adj_pval, log2FC, log2mean = NA, log2meandiff = -Inf,
                         pvalcutoff = 0.05, log2FCcutoff = log2(1.5),
