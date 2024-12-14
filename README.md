@@ -70,7 +70,7 @@ fixed effects.
 # create sampleID
 Bcells_sce$sampleID = paste0(Bcells_sce$stim,"_", Bcells_sce$ind)
 # running time is about 8 minutes.
-pois_glmm_df = poisson_glmm_DE(sce = Bcells_sce, comparison = "stim", repgroups = "ind", exp_batch = "sampleID")
+pois_glmm_df = poisson_glmm_DE(sce = Bcells_sce, comparison = "stim", replicates = "ind", exp_batch = "sampleID")
 ```
 
 ## Determine DEGs
@@ -116,6 +116,8 @@ ggplot(na.omit(pois_glmm_df), aes(x = log2FC, y = -log10(BH), colour = new_DEGs)
 ```
 
 ```{r}
+library(pheatmap)
+
 sort_log2FC = sort(abs(pois_glmm_df$log2FC[pois_glmm_df$new_DEGs]), index.return = T, decreasing = T)
 sorted_DEGs = pois_glmm_df$genes[which(pois_glmm_df$new_DEGs)][sort_log2FC$ix]
 mat = counts(Bcells_sce)[sorted_DEGs,]
@@ -146,13 +148,12 @@ Some studies have shown that the zero proportion of a gene is an indicator for d
 
 The DE result of Binomial-glmm can be obtained by the following command.
 ```{r}
-binomial_glmm_df = binomial_glmm_DE(sce = Bcells_sce, comparison = "stim", repgroups = "ind", exp_batch = "sampleID")
+binomial_glmm_df = binomial_glmm_DE(sce = Bcells_sce, comparison = "stim", replicates = "ind", exp_batch = "sampleID")
 ```
 
 The function `identifyDEGs` also provides another option for conventional criteria.
 ```{r}
 # conventional criteria
-pois_glmm_df$conv_DEGs = identifyDEGs(pois_glmm_df$BH, pois_glmm_df$log2FC, log2FCcutoff = 1, newcriteria = F)
 pois_glmm_df$conv_DEGs = identifyDEGs(adj_pval = pois_glmm_df$BH, 
                                      log2FC = pois_glmm_df$log2FC, 
                                      log2FCcutoff = 1,
@@ -162,7 +163,7 @@ pois_glmm_df$conv_DEGs = identifyDEGs(adj_pval = pois_glmm_df$BH,
 However, the heatmap below shows that the convention one may includes plenty of lowly expressed genes. We still recommend to perform the new criteria.
 ```{r}
 # conventional criteria
-library(pheatmap)
+
 sort_log2FC = sort(abs(pois_glmm_df$log2FC[pois_glmm_df$conv_DEGs]), index.return = T, decreasing = T)
 sorted_DEGs = pois_glmm_df$genes[which(pois_glmm_df$conv_DEGs)][sort_log2FC$ix]
 mat = counts(Bcells_sce)[sorted_DEGs,]
