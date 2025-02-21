@@ -1,15 +1,15 @@
-# LEMUR
+# LIME
 
-**LEMUR** is a tool that performs generalized linear mixed model based differential expression analysis on single-cell data with multiple samples. Unlike existing DE methods, we suggest to use raw UMI counts without pre-normalization on data and any normalization technique in the model. We provided two models, Poisson-glmm and Binomial-glmm, modeling UMI counts and zero proportion respectively.
+**LIME** is a tool that performs generalized linear mixed model based differential expression analysis on single-cell data with multiple samples. Unlike existing DE methods, we suggest to use raw UMI counts without pre-normalization on data and any normalization technique in the model. We provided two models, Poisson-glmm and Binomial-glmm, modeling UMI counts and zero proportion respectively.
 
 In this vignette, we will demonstrate how to install and use this package.
 
 ## Installation
 
-**LEMUR** can be installed from github directly as follows:
+**LIME** can be installed from github directly as follows:
 ```{r}
-devtools::install_github("C-HW/LEMUR")
-library(LEMUR)
+devtools::install_github("C-HW/LIME")
+library(LIME)
 ```
 
 ## Read Data
@@ -54,7 +54,7 @@ data(Bcells_sce)
 
 For this dataset, the goal of the DE analysis is to determine the DEGs between two different conditions 
 (groups) within B cells. The function `poisson_glmm_DE` and `binomial_glmm_DE` are designed to perform 
-DE analysis. Here we present the workflow of **LEMUR** by `poisson_glmm_DE` first.
+DE analysis. Here we present the workflow of **LIME** by `poisson_glmm_DE` first.
 
 The input requires a `SingleCellExperiment` object `sce` with UMI counts retrievable in 
 `sce@assays@data$counts`. The parameter `comparison` indicates the group-of-interest, and 

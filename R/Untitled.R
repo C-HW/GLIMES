@@ -1,4 +1,4 @@
-#' Linear mixed model-based differential Expression analysis accounting for Multiple samples Using Random effects
+#' Linear Mixed-Effects Model for single cell Expression Studies
 #'
 #' Single cell differential expression analysis for multiple samples
 #'
@@ -7,5 +7,5 @@
 #'
 #' @author Chih-Hsuan Wu \email{chihhsuan@uchicago.edu}
 #'
-#' @name LEMUR
+#' @name LIME
 NULL

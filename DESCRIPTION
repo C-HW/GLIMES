@@ -1,6 +1,6 @@
-Package: LEMUR
+Package: LIME
 Type: Package
-Title: Linear mixed model-based differential Expression analysis accounting for Multiple samples Using Random effects
+Title: Linear Mixed-Effects Model for single cell Expression Studies
 Version: 0.1.0
 Author: Chih-Hsuan Wu
 Maintainer: Chih-Hsuan Wu <chihhsuan@uchicago.edu>
