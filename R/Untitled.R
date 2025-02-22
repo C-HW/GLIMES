@@ -3,9 +3,9 @@
 #' Single cell differential expression analysis for multiple samples
 #'
 #'
-#' @docType package
+#' @docType _PACKAGE
 #'
 #' @author Chih-Hsuan Wu \email{chihhsuan@uchicago.edu}
 #'
-#' @name LIME
+#' @name GLIMES
 NULL

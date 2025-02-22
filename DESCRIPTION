@@ -1,11 +1,11 @@
-Package: LIME
+Package: GLIMES
 Type: Package
-Title: Linear Mixed-Effects Model for single cell Expression Studies
+Title: Genralized Linear Mixed-Effects Model for single cell Expression Studies
 Version: 0.1.0
 Author: Chih-Hsuan Wu
 Maintainer: Chih-Hsuan Wu <chihhsuan@uchicago.edu>
-Description: Single cell differential expression analysis for multiple samples
-License: GPL (>=2)
+Description: A single cell differential expression analysis tool for multiple samples
+License: BSD-3-Clause license
 Depends: R (>= 4.2.2)
 Encoding: UTF-8
 LazyData: true
